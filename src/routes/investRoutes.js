@@ -3,12 +3,13 @@ const router = express.Router();
 const investController = require('../controllers/investController');
 const authMiddleware = require('../middleware/authentication');
 const authorizeRole = require('../middleware/authorization');
+const uploadMiddleware = require('../middleware/upload');
 
 // Semua route invest memerlukan autentikasi
 router.use(authMiddleware);
 
 // User routes (investor dan admin bisa akses)
-router.post('/', authorizeRole('investor', 'admin'), investController.createInvest);
+router.post('/', authorizeRole('investor', 'admin'), uploadMiddleware, investController.createInvest);
 router.get('/', authorizeRole('investor', 'admin'), investController.getUserInvests);
 router.get('/:id', authorizeRole('investor', 'admin'), investController.getInvestById);
 

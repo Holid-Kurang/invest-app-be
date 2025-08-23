@@ -1,11 +1,30 @@
 const prisma = require('../config/database');
+const emailService = require('../services/emailService');
 
 class InvestController {
   // Membuat investasi baru
   async createInvest(req, res) {
     try {
-      const { amount, proof } = req.body;
+      const { amount } = req.body;
       const userId = req.user.id_user;
+      let userEmail = req.user.email;
+
+      // Jika email tidak ada di JWT, ambil dari database
+      if (!userEmail) {
+        const user = await prisma.user.findUnique({
+          where: { id_user: userId },
+          select: { email: true }
+        });
+        userEmail = user?.email;
+      }
+
+      // Validasi email
+      if (!userEmail) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email user tidak ditemukan'
+        });
+      }
 
       // Validasi input
       if (!amount) {
@@ -23,19 +42,40 @@ class InvestController {
         });
       }
 
+      // Validasi amount tidak melebihi batas maksimal (10^10 = 10,000,000,000)
+      if (parseFloat(amount) >= 10000000000) {
+        return res.status(400).json({
+          success: false,
+          message: 'Amount tidak boleh melebihi 10,000,000,000'
+        });
+      }
+
+      // Simpan investasi ke database tanpa path file (karena tidak disimpan ke disk)
       const newInvest = await prisma.invest.create({
         data: {
           id_user: userId,
           amount: parseFloat(amount),
-          proof: proof || null,
+          proof: req.file.originalname, // Hanya simpan nama file asli
           status: 'pending'
         }
       });
 
+      // Siapkan data file untuk email
+      const fileData = {
+        buffer: req.file.buffer,
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype
+      };
+
+      await emailService.sendInvestNotificationToAdmin(
+        newInvest, 
+        userEmail, 
+        fileData // Kirim file buffer, bukan path
+      );
+
       res.status(201).json({
         success: true,
-        message: 'Investasi berhasil dibuat',
-        data: newInvest
+        message: 'Investasi berhasil dibuat dan notifikasi telah dikirim',
       });
 
     } catch (error) {
