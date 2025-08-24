@@ -8,11 +8,11 @@ const authorizeRole = require('../middleware/authorization');
 router.use(authMiddleware);
 router.use(authorizeRole('admin'));
 
-// Admin management routes
-router.get('/users', adminController.getAllUsers);
-router.get('/investments', adminController.getAllInvestments);
-router.get('/returns', adminController.getAllReturns);
-router.get('/withdrawals', adminController.getAllWithdrawals);
-router.get('/dashboard', adminController.getDashboardStats);
+
+// Investor management routes
+router.get('/investors', adminController.getAllInvestors);
+router.post('/investors', adminController.createInvestor);
+router.put('/investors/:id', adminController.updateInvestor);
+router.delete('/investors/:id', adminController.deleteInvestor);
 
 module.exports = router;

@@ -14,7 +14,7 @@ class EmailService {
         });
     }
 
-    async createTransporter(userEmail) {
+    async createTransporter() {
         try {
             const accessToken = await this.oauth2Client.getAccessToken();
 
@@ -22,7 +22,7 @@ class EmailService {
                 service: 'gmail',
                 auth: {
                     type: 'OAuth2',
-                    user: userEmail,
+                    user: process.env.GMAIL_USER,
                     clientId: process.env.GMAIL_CLIENT_ID,
                     clientSecret: process.env.GMAIL_CLIENT_SECRET,
                     refreshToken: process.env.GMAIL_REFRESH_TOKEN,
@@ -35,7 +35,7 @@ class EmailService {
         }
     }
 
-    async sendInvestNotificationToAdmin(investData, userEmail, fileData = null) {
+    async sendTransactionNotificationToAdmin(id, transactionData, userEmail, type, fileData = null) {
         try {
             const transporter = await this.createTransporter(userEmail);
             
@@ -44,8 +44,33 @@ class EmailService {
                 from: `"Investment App" <${userEmail}>`,
                 to: process.env.ADMIN_EMAIL,
                 replyTo: userEmail,
-                subject: `🔔 New Investment from ${userEmail} - ID: ${investData.id_invest}`,
-                // ... rest of email content
+                subject: `🔔 New Transaction from ${userEmail} - ID: ${id}`,
+                html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                        <h2 style="color: #2c3e50;">🔔 New Transaction Notification</h2>
+                        
+                        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                            <h3 style="color: #495057; margin-top: 0;">Transaction Details:</h3>
+                            <ul style="line-height: 1.6;">
+                                <li><strong>Transaction ID:</strong> ${id}</li>
+                                <li><strong>User Email:</strong> ${userEmail}</li>
+                                <li><strong>Amount:</strong> Rp.${transactionData.amount || 'N/A'}</li>
+                                <li><strong>Transaction Type:</strong> ${type || 'N/A'}</li>
+                                <li><strong>Date:</strong> ${new Date().toLocaleString()}</li>
+                            </ul>
+                        </div>
+
+                        <div style="background-color: #e3f2fd; padding: 15px; border-radius: 8px; border-left: 4px solid #2196f3;">
+                            <p style="margin: 0; color: #1976d2;">
+                                <strong>Action Required:</strong> Please review and process this new transaction request.
+                            </p>
+                        </div>
+
+                        <p style="color: #6c757d; font-size: 12px; margin-top: 30px;">
+                            This is an automated notification from the Investment App system.
+                        </p>
+                    </div>
+                `
             };
 
             if (fileData && fileData.buffer) {

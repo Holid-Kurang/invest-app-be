@@ -6,89 +6,76 @@ class DashboardController {
         try {
             const userId = req.user.id_user;
 
-            // Ambil semua data investasi
-            const invests = await prisma.invest.findMany({
-                where: { id_user: userId },
-                orderBy: { date: 'desc' }
-            });
+            // Ambil semua data dari database
+            const [invests, withdrawals] = await Promise.all([
+                prisma.invest.findMany({
+                    where: { id_user: userId },
+                    orderBy: { date: 'desc' }
+                }),
+                prisma.withdrawal.findMany({
+                    where: { id_user: userId },
+                    orderBy: { date: 'desc' }
+                })
+            ]);
 
-            // Ambil semua data return
-            const returns = await prisma.return.findMany({
-                where: { id_user: userId },
-                orderBy: { request_at: 'desc' }
-            });
-
-            // Ambil semua data withdrawal
-            const withdrawals = await prisma.withdrawal.findMany({
-                where: { id_user: userId },
-                orderBy: { date: 'desc' }
-            });
-
-            // Hitung statistik
+            // Hitung total investasi yang berhasil
             const totalInvestment = invests
                 .filter(invest => invest.status === 'success')
                 .reduce((sum, invest) => sum + parseFloat(invest.amount), 0);
 
-            const totalReturns = returns
-                .filter(returnItem => returnItem.status === 'succes')
-                .reduce((sum, returnItem) => sum + parseFloat(returnItem.amount), 0);
-
-            const totalWithdrawals = withdrawals
-                .filter(withdrawal => withdrawal.status === 'success')
-                .reduce((sum, withdrawal) => sum + parseFloat(withdrawal.amount), 0);
-
-            // Hitung return tahunan (asumsi 12% dari total investasi)
+            // Hitung return-related statistics
             const annualReturn = totalInvestment * 0.12;
-
-            // Hitung return harian (return tahunan / 365)
             const dailyReturn = annualReturn / 365;
+            
+            // Hitung total hari investasi
+            const firstInvestment = invests
+                .filter(invest => invest.status === 'success')
+                .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+            
+            let totalDays = 0;
+            if (firstInvestment) {
+                const startDate = new Date(firstInvestment.date);
+                const currentDate = new Date();
+                totalDays = Math.floor((currentDate - startDate) / (1000 * 60 * 60 * 24));
+            }
 
-            // Hitung dividend earnings (sama dengan total returns untuk sementara)
-            const dividendEarnings = totalReturns;
+            // Hitung total withdrawal yang berhasil
+            const totalWithdrawals = withdrawals
+            .filter(withdrawal => withdrawal.status === 'success')
+            .reduce((sum, withdrawal) => sum + parseFloat(withdrawal.amount), 0);
+            
+            const dividendEarnings = totalWithdrawals > 0 ? totalWithdrawals : 0;
+            const totalReturns = dailyReturn * totalDays - dividendEarnings;
 
-            // Gabungkan semua transaksi untuk tabel
-            const allTransactions = [];
-
-            // Tambahkan investasi
-            invests.forEach(invest => {
-                allTransactions.push({
+            // Gabungkan semua transaksi
+            const allTransactions = [
+                // Investasi
+                ...invests.map(invest => ({
                     date: invest.date,
                     type: 'Investment',
                     amount: parseFloat(invest.amount),
-                    status: invest.status === 'success' ? 'Successful' : invest.status === 'pending' ? 'Pending' : 'Rejected',
+                    status: invest.status === 'success' ? 'Successful' : 
+                            invest.status === 'pending' ? 'Pending' : 'Rejected',
                     id: invest.id_invest,
                     originalType: 'invest'
-                });
-            });
-
-            // Tambahkan returns
-            returns.forEach(returnItem => {
-                allTransactions.push({
-                    date: returnItem.request_at,
-                    type: 'Return',
-                    amount: parseFloat(returnItem.amount),
-                    status: returnItem.status === 'succes' ? 'Successful' : 'Pending',
-                    id: returnItem.id_return,
-                    originalType: 'return'
-                });
-            });
-
-            // Tambahkan withdrawals
-            withdrawals.forEach(withdrawal => {
-                allTransactions.push({
+                })),
+                
+                // Withdrawals
+                ...withdrawals.map(withdrawal => ({
                     date: withdrawal.date,
                     type: 'Withdrawal',
                     amount: parseFloat(withdrawal.amount),
-                    status: withdrawal.status === 'success' ? 'Successful' : withdrawal.status === 'pending' ? 'Pending' : 'Rejected',
+                    status: withdrawal.status === 'success' ? 'Successful' : 
+                            withdrawal.status === 'pending' ? 'Pending' : 'Rejected',
                     id: withdrawal.id,
                     originalType: 'withdrawal'
-                });
-            });
+                }))
+            ];
 
-            // Urutkan transaksi berdasarkan tanggal terbaru
+            // Urutkan berdasarkan tanggal terbaru
             allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-            // Ambil 10 transaksi terbaru untuk tabel
+            // Ambil 10 transaksi terbaru
             const recentTransactions = allTransactions.slice(0, 10);
 
             res.status(200).json({
@@ -99,7 +86,8 @@ class DashboardController {
                         annualReturn,
                         dailyReturn,
                         totalReturns,
-                        dividendEarnings
+                        dividendEarnings,
+                        totalDays
                     },
                     transactions: recentTransactions,
                     allTransactions

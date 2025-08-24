@@ -1,198 +1,228 @@
 const prisma = require('../config/database');
+const bcrypt = require('bcryptjs');
 
 class AdminController {
-  // Get all users (admin only)
-  async getAllUsers(req, res) {
-    try {
-      const users = await prisma.user.findMany({
-        select: {
-          id_user: true,
-          email: true,
-          role: true,
-          created_at: true,
-          updated_at: true
-        },
-        orderBy: { created_at: 'desc' }
-      });
 
-      res.status(200).json({
-        success: true,
-        data: users
-      });
+    // Get all investors (admin only)
+    async getAllInvestors(req, res) {
+        try {
+            const investors = await prisma.user.findMany({
+                where: { role: 'investor' },
+                select: {
+                    id_user: true,
+                    name: true,
+                    email: true,
+                    role: true,
+                    created_at: true,
+                    updated_at: true
+                },
+                orderBy: { created_at: 'desc' }
+            });
 
-    } catch (error) {
-      console.error('Get all users error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Terjadi kesalahan server'
-      });
-    }
-  }
+            res.status(200).json({
+                success: true,
+                data: investors
+            });
 
-  // Get all investments (admin only)
-  async getAllInvestments(req, res) {
-    try {
-      const investments = await prisma.invest.findMany({
-        include: {
-          user: {
-            select: {
-              id_user: true,
-              email: true
-            }
-          }
-        },
-        orderBy: { date: 'desc' }
-      });
-
-      res.status(200).json({
-        success: true,
-        data: investments
-      });
-
-    } catch (error) {
-      console.error('Get all investments error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Terjadi kesalahan server'
-      });
-    }
-  }
-
-  // Get all returns (admin only)
-  async getAllReturns(req, res) {
-    try {
-      const returns = await prisma.return.findMany({
-        include: {
-          user: {
-            select: {
-              id_user: true,
-              email: true
-            }
-          }
-        },
-        orderBy: { request_at: 'desc' }
-      });
-
-      res.status(200).json({
-        success: true,
-        data: returns
-      });
-
-    } catch (error) {
-      console.error('Get all returns error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Terjadi kesalahan server'
-      });
-    }
-  }
-
-  // Get all withdrawals (admin only)
-  async getAllWithdrawals(req, res) {
-    try {
-      const withdrawals = await prisma.withdrawal.findMany({
-        include: {
-          user: {
-            select: {
-              id_user: true,
-              email: true
-            }
-          }
-        },
-        orderBy: { date: 'desc' }
-      });
-
-      res.status(200).json({
-        success: true,
-        data: withdrawals
-      });
-
-    } catch (error) {
-      console.error('Get all withdrawals error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Terjadi kesalahan server'
-      });
-    }
-  }
-
-  // Dashboard statistics (admin only)
-  async getDashboardStats(req, res) {
-    try {
-      const [
-        totalUsers,
-        totalInvestors,
-        totalAdmins,
-        totalInvestments,
-        pendingInvestments,
-        successInvestments,
-        totalReturns,
-        pendingReturns,
-        totalWithdrawals,
-        pendingWithdrawals
-      ] = await Promise.all([
-        prisma.user.count(),
-        prisma.user.count({ where: { role: 'investor' } }),
-        prisma.user.count({ where: { role: 'admin' } }),
-        prisma.invest.count(),
-        prisma.invest.count({ where: { status: 'pending' } }),
-        prisma.invest.count({ where: { status: 'success' } }),
-        prisma.return.count(),
-        prisma.return.count({ where: { status: 'pending' } }),
-        prisma.withdrawal.count(),
-        prisma.withdrawal.count({ where: { status: 'pending' } })
-      ]);
-
-      const totalInvestmentAmount = await prisma.invest.aggregate({
-        _sum: { amount: true },
-        where: { status: 'success' }
-      });
-
-      const totalReturnAmount = await prisma.return.aggregate({
-        _sum: { amount: true },
-        where: { status: 'succes' }
-      });
-
-      const totalWithdrawalAmount = await prisma.withdrawal.aggregate({
-        _sum: { amount: true },
-        where: { status: 'success' }
-      });
-
-      res.status(200).json({
-        success: true,
-        data: {
-          users: {
-            total: totalUsers,
-            investors: totalInvestors,
-            admins: totalAdmins
-          },
-          investments: {
-            total: totalInvestments,
-            pending: pendingInvestments,
-            success: successInvestments,
-            totalAmount: totalInvestmentAmount._sum.amount || 0
-          },
-          returns: {
-            total: totalReturns,
-            pending: pendingReturns,
-            totalAmount: totalReturnAmount._sum.amount || 0
-          },
-          withdrawals: {
-            total: totalWithdrawals,
-            pending: pendingWithdrawals,
-            totalAmount: totalWithdrawalAmount._sum.amount || 0
-          }
+        } catch (error) {
+            console.error('Get all investors error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Terjadi kesalahan server'
+            });
         }
-      });
-
-    } catch (error) {
-      console.error('Get dashboard stats error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Terjadi kesalahan server'
-      });
     }
-  }
+
+    // Create new investor (admin only)
+    async createInvestor(req, res) {
+        try {
+            const { name, email, password } = req.body;
+
+            // Validation
+            if (!name || !email || !password) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Name, email dan password diperlukan'
+                });
+            }
+
+            // Check if email already exists
+            const existingUser = await prisma.user.findUnique({
+                where: { email }
+            });
+
+            if (existingUser) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Email sudah terdaftar'
+                });
+            }
+
+            // Create new investor
+            const hashedPassword = await bcrypt.hash(password, 10);
+
+            const newInvestor = await prisma.user.create({
+                data: {
+                    name,
+                    email,
+                    password: hashedPassword,
+                    role: 'investor'
+                },
+                select: {
+                    id_user: true,
+                    name: true,
+                    email: true,
+                    role: true,
+                    created_at: true,
+                    updated_at: true
+                }
+            });
+
+            res.status(201).json({
+                success: true,
+                data: newInvestor,
+                message: 'Investor berhasil dibuat'
+            });
+
+        } catch (error) {
+            console.error('Create investor error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Terjadi kesalahan server'
+            });
+        }
+    }
+
+    // Update investor (admin only)
+    async updateInvestor(req, res) {
+        try {
+            const { id } = req.params;
+            const { name, email, password } = req.body;
+
+            // Validation
+            if (!name || !email) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Name dan email diperlukan'
+                });
+            }
+
+            // Check if investor exists
+            const existingInvestor = await prisma.user.findFirst({
+                where: {
+                    id_user: parseInt(id),
+                    role: 'investor'
+                }
+            });
+
+            if (!existingInvestor) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Investor tidak ditemukan'
+                });
+            }
+
+            // Check if email is taken by another user
+            const emailTaken = await prisma.user.findFirst({
+                where: {
+                    email,
+                    id_user: { not: parseInt(id) }
+                }
+            });
+
+            if (emailTaken) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Email sudah digunakan oleh user lain'
+                });
+            }
+
+            // Update data
+            const updateData = { name, email };
+
+            if (password) {
+                updateData.password = await bcrypt.hash(password, 10);
+            }
+
+            const updatedInvestor = await prisma.user.update({
+                where: { id_user: parseInt(id) },
+                data: updateData,
+                select: {
+                    id_user: true,
+                    name: true,
+                    email: true,
+                    role: true,
+                    created_at: true,
+                    updated_at: true
+                }
+            });
+
+            res.status(200).json({
+                success: true,
+                data: updatedInvestor,
+                message: 'Investor berhasil diupdate'
+            });
+
+        } catch (error) {
+            console.error('Update investor error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Terjadi kesalahan server'
+            });
+        }
+    }
+
+    // Delete investor (admin only)
+    async deleteInvestor(req, res) {
+        try {
+            const { id } = req.params;
+
+            // Check if investor exists
+            const existingInvestor = await prisma.user.findFirst({
+                where: {
+                    id_user: parseInt(id),
+                    role: 'investor'
+                }
+            });
+
+            if (!existingInvestor) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Investor tidak ditemukan'
+                });
+            }
+
+            // Check if investor has related data (investments, withdrawals)
+            const [investmentCount, withdrawalCount] = await Promise.all([
+                prisma.invest.count({ where: { id_user: parseInt(id) } }),
+                prisma.withdrawal.count({ where: { id_user: parseInt(id) } })
+            ]);
+
+            if (investmentCount > 0 || withdrawalCount > 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Tidak dapat menghapus investor yang memiliki data investasi atau withdrawal'
+                });
+            }
+
+            // Delete investor
+            await prisma.user.delete({
+                where: { id_user: parseInt(id) }
+            });
+
+            res.status(200).json({
+                success: true,
+                message: 'Investor berhasil dihapus'
+            });
+
+        } catch (error) {
+            console.error('Delete investor error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Terjadi kesalahan server'
+            });
+        }
+    }
 }
 
 module.exports = new AdminController();

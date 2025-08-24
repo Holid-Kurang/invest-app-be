@@ -4,7 +4,6 @@ const router = express.Router();
 // Import routes
 const authRoutes = require('./authRoutes');
 const investRoutes = require('./investRoutes');
-const returnRoutes = require('./returnRoutes');
 const withdrawalRoutes = require('./withdrawalRoutes');
 const adminRoutes = require('./adminRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
@@ -12,7 +11,6 @@ const dashboardRoutes = require('./dashboardRoutes');
 // Routes
 router.use('/auth', authRoutes);
 router.use('/invest', investRoutes);
-router.use('/return', returnRoutes);
 router.use('/withdrawal', withdrawalRoutes);
 router.use('/admin', adminRoutes);
 router.use('/dashboard', dashboardRoutes);
