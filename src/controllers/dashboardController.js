@@ -45,7 +45,7 @@ class DashboardController {
             .reduce((sum, withdrawal) => sum + parseFloat(withdrawal.amount), 0);
             
             const dividendEarnings = totalWithdrawals > 0 ? totalWithdrawals : 0;
-            const totalReturns = dailyReturn * totalDays - dividendEarnings;
+            const totalReturns = dailyReturn * totalDays;
 
             // Gabungkan semua transaksi
             const allTransactions = [
