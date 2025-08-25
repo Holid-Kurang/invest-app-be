@@ -3,11 +3,10 @@ const bcrypt = require('bcryptjs');
 
 class AdminController {
 
-    // Get all investors (admin only)
-    async getAllInvestors(req, res) {
+    // Get all users (admin only)
+    async getAllUsers(req, res) {
         try {
-            const investors = await prisma.user.findMany({
-                where: { role: 'investor' },
+            const users = await prisma.user.findMany({
                 select: {
                     id_user: true,
                     name: true,
@@ -16,16 +15,16 @@ class AdminController {
                     created_at: true,
                     updated_at: true
                 },
-                orderBy: { created_at: 'desc' }
+                orderBy: { role: 'desc' }
             });
 
             res.status(200).json({
                 success: true,
-                data: investors
+                data: users
             });
 
         } catch (error) {
-            console.error('Get all investors error:', error);
+            console.error('Get all users error:', error);
             res.status(500).json({
                 success: false,
                 message: 'Terjadi kesalahan server'
@@ -217,6 +216,87 @@ class AdminController {
 
         } catch (error) {
             console.error('Delete investor error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Terjadi kesalahan server'
+            });
+        }
+    }
+
+    // Get all transactions history (admin only)
+    async getAllTransactions(req, res) {
+        try {
+            // Ambil semua data dari database dengan informasi user
+            const [invests, withdrawals] = await Promise.all([
+                prisma.invest.findMany({
+                    include: {
+                        user: {
+                            select: {
+                                id_user: true,
+                                name: true,
+                                email: true
+                            }
+                        }
+                    },
+                    orderBy: { date: 'desc' }
+                }),
+                prisma.withdrawal.findMany({
+                    include: {
+                        user: {
+                            select: {
+                                id_user: true,
+                                name: true,
+                                email: true
+                            }
+                        }
+                    },
+                    orderBy: { date: 'desc' }
+                })
+            ]);
+
+            // Gabungkan semua transaksi
+            const allTransactions = [
+                // Investasi
+                ...invests.map(invest => ({
+                    id: invest.id_invest,
+                    date: invest.date,
+                    type: 'Investment',
+                    amount: parseFloat(invest.amount),
+                    status: invest.status === 'success' ? 'Successful' : 
+                            invest.status === 'pending' ? 'Pending' : 'Rejected',
+                    investor: invest.user.name,
+                    investor_email: invest.user.email,
+                    id_user: invest.user.id_user,
+                    originalType: 'invest',
+                    proof: invest.proof || null
+                })),
+                
+                // Withdrawals
+                ...withdrawals.map(withdrawal => ({
+                    id: withdrawal.id,
+                    date: withdrawal.date,
+                    type: 'Withdrawal',
+                    amount: parseFloat(withdrawal.amount),
+                    status: withdrawal.status === 'success' ? 'Successful' : 
+                            withdrawal.status === 'pending' ? 'Pending' : 'Rejected',
+                    investor: withdrawal.user.name,
+                    investor_email: withdrawal.user.email,
+                    id_user: withdrawal.user.id_user,
+                    originalType: 'withdrawal',
+                    proof: null
+                }))
+            ];
+
+            // Urutkan berdasarkan tanggal terbaru
+            allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            res.status(200).json({
+                success: true,
+                data: allTransactions
+            });
+
+        } catch (error) {
+            console.error('Get all transactions error:', error);
             res.status(500).json({
                 success: false,
                 message: 'Terjadi kesalahan server'

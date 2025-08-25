@@ -10,10 +10,9 @@ router.use(authMiddleware);
 
 // User routes (investor dan admin bisa akses)
 router.post('/', authorizeRole('investor', 'admin'), uploadMiddleware, investController.createInvest);
-router.get('/', authorizeRole('investor', 'admin'), investController.getUserInvests);
-router.get('/:id', authorizeRole('investor', 'admin'), investController.getInvestById);
 
 // Admin routes (hanya admin yang bisa update status)
+router.get('/admin/all', authorizeRole('admin'), investController.getAllInvestments);
 router.put('/:id/status', authorizeRole('admin'), investController.updateInvestStatus);
 
 module.exports = router;

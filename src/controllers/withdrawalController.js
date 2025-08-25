@@ -90,64 +90,6 @@ class WithdrawalController {
         }
     }
 
-    // Mendapatkan semua withdrawal user
-    async getUserWithdrawals(req, res) {
-        try {
-            const userId = req.user.id_user;
-
-            const withdrawals = await prisma.withdrawal.findMany({
-                where: { id_user: userId },
-                orderBy: { date: 'desc' }
-            });
-
-            res.status(200).json({
-                success: true,
-                data: withdrawals
-            });
-
-        } catch (error) {
-            console.error('Get user withdrawals error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Terjadi kesalahan server'
-            });
-        }
-    }
-
-    // Mendapatkan detail withdrawal
-    async getWithdrawalById(req, res) {
-        try {
-            const { id } = req.params;
-            const userId = req.user.id_user;
-
-            const withdrawal = await prisma.withdrawal.findFirst({
-                where: {
-                    id: parseInt(id),
-                    id_user: userId
-                }
-            });
-
-            if (!withdrawal) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Withdrawal tidak ditemukan'
-                });
-            }
-
-            res.status(200).json({
-                success: true,
-                data: withdrawal
-            });
-
-        } catch (error) {
-            console.error('Get withdrawal by id error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Terjadi kesalahan server'
-            });
-        }
-    }
-
     // Update status withdrawal (untuk admin)
     async updateWithdrawalStatus(req, res) {
         try {
@@ -175,6 +117,47 @@ class WithdrawalController {
 
         } catch (error) {
             console.error('Update withdrawal status error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Terjadi kesalahan server'
+            });
+        }
+    }
+
+    // Mendapatkan semua withdrawal untuk admin
+    async getAllWithdrawals(req, res) {
+        try {
+            const withdrawals = await prisma.withdrawal.findMany({
+                include: {
+                    user: {
+                        select: {
+                            id_user: true,
+                            name: true,
+                            email: true
+                        }
+                    }
+                },
+                orderBy: { date: 'desc' }
+            });
+
+            // Format data untuk response
+            const formattedWithdrawals = withdrawals.map(withdrawal => ({
+                id: withdrawal.id,
+                date: withdrawal.date,
+                amount: parseFloat(withdrawal.amount),
+                status: withdrawal.status,
+                investor: withdrawal.user.name,
+                investor_email: withdrawal.user.email,
+                id_user: withdrawal.user.id_user
+            }));
+
+            res.status(200).json({
+                success: true,
+                data: formattedWithdrawals
+            });
+
+        } catch (error) {
+            console.error('Get all withdrawals error:', error);
             res.status(500).json({
                 success: false,
                 message: 'Terjadi kesalahan server'

@@ -91,63 +91,6 @@ class InvestController {
         }
     }
 
-    // Mendapatkan semua investasi user
-    async getUserInvests(req, res) {
-        try {
-            const userId = req.user.id_user;
-
-            const invests = await prisma.invest.findMany({
-                where: { id_user: userId },
-                orderBy: { date: 'desc' }
-            });
-
-            res.status(200).json({
-                success: true,
-                data: invests
-            });
-
-        } catch (error) {
-            console.error('Get user invests error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Terjadi kesalahan server'
-            });
-        }
-    }
-
-    async getInvestById(req, res) {
-        try {
-            const { id } = req.params;
-            const userId = req.user.id_user;
-
-            const invest = await prisma.invest.findFirst({
-                where: {
-                    id_invest: parseInt(id),
-                    id_user: userId
-                }
-            });
-
-            if (!invest) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Investasi tidak ditemukan'
-                });
-            }
-
-            res.status(200).json({
-                success: true,
-                data: invest
-            });
-
-        } catch (error) {
-            console.error('Get invest by id error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Terjadi kesalahan server'
-            });
-        }
-    }
-
     // Update status investasi (untuk admin)
     async updateInvestStatus(req, res) {
         try {
@@ -175,6 +118,47 @@ class InvestController {
 
         } catch (error) {
             console.error('Update invest status error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Terjadi kesalahan server'
+            });
+        }
+    }
+
+    // Mendapatkan semua investasi untuk admin
+    async getAllInvestments(req, res) {
+        try {
+            const investments = await prisma.invest.findMany({
+                include: {
+                    user: {
+                        select: {
+                            id_user: true,
+                            name: true,
+                            email: true
+                        }
+                    }
+                },
+                orderBy: { date: 'desc' }
+            });
+
+            // Format data untuk response
+            const formattedInvestments = investments.map(investment => ({
+                id: investment.id_invest,
+                date: investment.date,
+                amount: parseFloat(investment.amount),
+                status: investment.status,
+                proof: investment.proof,
+                investor: investment.user.name,
+                investor_email: investment.user.email,
+                id_user: investment.user.id_user
+            }));
+
+            res.status(200).json({
+                success: true,
+                data: formattedInvestments
+            });
+        } catch (error) {
+            console.error('Get all investments error:', error);
             res.status(500).json({
                 success: false,
                 message: 'Terjadi kesalahan server'
