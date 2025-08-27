@@ -90,6 +90,30 @@ class WithdrawalController {
         }
     }
 
+    // Mendapatkan semua withdrawal user
+    async getUserWithdrawals(req, res) {
+        try {
+            const userId = req.user.id_user;
+
+            const withdrawals = await prisma.withdrawal.findMany({
+                where: { id_user: userId },
+                orderBy: { date: 'desc' }
+            });
+
+            res.status(200).json({
+                success: true,
+                data: withdrawals
+            });
+
+        } catch (error) {
+            console.error('Get user withdrawals error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Terjadi kesalahan server'
+            });
+        }
+    }
+
     // Update status withdrawal (untuk admin)
     async updateWithdrawalStatus(req, res) {
         try {

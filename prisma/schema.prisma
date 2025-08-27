@@ -32,7 +32,7 @@ model Invest {
   id_invest Int      @id @default(autoincrement())
   id_user   Int
   amount    Decimal  @db.Decimal(12, 2)
-  proof     String?  @db.VarChar(255)
+  proof     String?  @db.Text
   status    Status   @default(pending)
   date      DateTime @default(now())
   

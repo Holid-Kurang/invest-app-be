@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
 const emailService = require('../services/emailService');
+const cloudinary = require('../services/cloudService');
 
 class InvestController {
     // Membuat investasi baru
@@ -50,12 +51,41 @@ class InvestController {
                 });
             }
 
-            // Simpan investasi ke database tanpa path file (karena tidak disimpan ke disk)
+            // Upload file ke Cloudinary
+            let proofUrl = null;
+            if (req.file) {
+                try {
+                    const uploadResult = await new Promise((resolve, reject) => {
+                        cloudinary.uploader.upload_stream(
+                            {
+                                resource_type: 'image',
+                                folder: 'investment-proofs',
+                                public_id: `proof_${userId}_${Date.now()}`,
+                                format: 'jpg'
+                            },
+                            (error, result) => {
+                                if (error) reject(error);
+                                else resolve(result);
+                            }
+                        ).end(req.file.buffer);
+                    });
+                    
+                    proofUrl = uploadResult.secure_url;
+                } catch (uploadError) {
+                    console.error('Cloudinary upload error:', uploadError);
+                    return res.status(500).json({
+                        success: false,
+                        message: 'Gagal mengupload bukti pembayaran'
+                    });
+                }
+            }
+
+            // Simpan investasi ke database dengan URL Cloudinary
             const newInvest = await prisma.invest.create({
                 data: {
                     id_user: userId,
                     amount: parseFloat(amount),
-                    proof: req.file.originalname, // Hanya simpan nama file asli
+                    proof: proofUrl, // Simpan URL dari Cloudinary
                     status: 'pending'
                 }
             });
@@ -147,10 +177,11 @@ class InvestController {
                 date: investment.date,
                 amount: parseFloat(investment.amount),
                 status: investment.status,
-                proof: investment.proof,
                 investor: investment.user.name,
                 investor_email: investment.user.email,
-                id_user: investment.user.id_user
+                id_user: investment.user.id_user,
+                hasProof: !!investment.proof,
+                proofUrl: investment.proof // URL dari Cloudinary
             }));
 
             res.status(200).json({

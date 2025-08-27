@@ -9,6 +9,7 @@ router.use(authMiddleware);
 
 // User routes (investor dan admin bisa akses)
 router.post('/', authorizeRole('investor', 'admin'), withdrawalController.createWithdrawal);
+router.get('/', authorizeRole('investor', 'admin'), withdrawalController.getUserWithdrawals);
 
 // Admin routes (hanya admin yang bisa update status dan lihat semua withdrawal)
 router.get('/admin/all', authorizeRole('admin'), withdrawalController.getAllWithdrawals);
