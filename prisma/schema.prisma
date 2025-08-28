@@ -47,7 +47,7 @@ model Withdrawal {
   id      Int              @id @default(autoincrement())
   id_user Int
   amount  Decimal          @db.Decimal(12, 2)
-  status  WithdrawalStatus @default(pending)
+  status  Status @default(pending)
   date    DateTime         @default(now())
   
   // Relations
@@ -63,11 +63,6 @@ enum UserRole {
 }
 
 enum Status {
-  pending
-  success
-}
-
-enum WithdrawalStatus {
   pending
   success
   rejected

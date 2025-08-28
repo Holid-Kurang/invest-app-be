@@ -128,7 +128,7 @@ class InvestController {
             const { status } = req.body;
 
             // Validasi status
-            if (!['pending', 'success'].includes(status)) {
+            if (!['pending', 'success', 'rejected'].includes(status)) {
                 return res.status(400).json({
                     success: false,
                     message: 'Status tidak valid'
