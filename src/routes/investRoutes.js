@@ -14,5 +14,6 @@ router.post('/', authorizeRole('investor', 'admin'), uploadMiddleware, investCon
 // Admin routes (hanya admin yang bisa update status)
 router.get('/admin/all', authorizeRole('admin'), investController.getAllInvestments);
 router.put('/:id/status', authorizeRole('admin'), investController.updateInvestStatus);
+router.delete('/:id/delete', authorizeRole('admin'), investController.deleteInvestment);
 
 module.exports = router;

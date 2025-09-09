@@ -223,6 +223,102 @@ class AdminController {
         }
     }
 
+    // Get investor details with investment history (admin only)
+    async getInvestorDetails(req, res) {
+        try {
+            const { id } = req.params;
+
+            // Get investor info
+            const investor = await prisma.user.findFirst({
+                where: {
+                    id_user: parseInt(id),
+                    role: 'investor'
+                },
+                select: {
+                    id_user: true,
+                    name: true,
+                    email: true,
+                    role: true,
+                    created_at: true
+                }
+            });
+
+            if (!investor) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Investor tidak ditemukan'
+                });
+            }
+
+            // Get investor's investment and withdrawal history
+            const [investments, withdrawals] = await Promise.all([
+                prisma.invest.findMany({
+                    where: { id_user: parseInt(id) },
+                    orderBy: { date: 'desc' }
+                }),
+                prisma.withdrawal.findMany({
+                    where: { id_user: parseInt(id) },
+                    orderBy: { date: 'desc' }
+                })
+            ]);
+
+            // Calculate statistics
+            const totalInvestment = investments
+                .filter(inv => inv.status === 'success')
+                .reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+
+            const totalWithdrawal = withdrawals
+                .filter(wd => wd.status === 'success')
+                .reduce((sum, wd) => sum + parseFloat(wd.amount), 0);
+
+            const totalDividendEarnings = totalWithdrawal; // Withdrawal yang sukses = dividend yang sudah ditarik
+
+            // Format transaction history
+            const transactionHistory = [
+                ...investments.map(inv => ({
+                    id: inv.id_invest,
+                    date: inv.date,
+                    type: 'Investment',
+                    amount: parseFloat(inv.amount),
+                    status: inv.status === 'success' ? 'Successful' :
+                        inv.status === 'pending' ? 'Pending' : 'Rejected',
+                    proof: inv.proof
+                })),
+                ...withdrawals.map(wd => ({
+                    id: wd.id,
+                    date: wd.date,
+                    type: 'Withdrawal',
+                    amount: parseFloat(wd.amount),
+                    status: wd.status === 'success' ? 'Successful' :
+                        wd.status === 'pending' ? 'Pending' : 'Rejected',
+                    proof: null
+                }))
+            ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            const investorDetails = {
+                investor,
+                statistics: {
+                    totalInvestment,
+                    totalWithdrawal,
+                    totalDividendEarnings
+                },
+                transactionHistory
+            };
+
+            res.status(200).json({
+                success: true,
+                data: investorDetails
+            });
+
+        } catch (error) {
+            console.error('Get investor details error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Terjadi kesalahan server'
+            });
+        }
+    }
+
     // Get all transactions history (admin only)
     async getAllTransactions(req, res) {
         try {
@@ -262,23 +358,23 @@ class AdminController {
                     date: invest.date,
                     type: 'Investment',
                     amount: parseFloat(invest.amount),
-                    status: invest.status === 'success' ? 'Successful' : 
-                            invest.status === 'pending' ? 'Pending' : 'Rejected',
+                    status: invest.status === 'success' ? 'Successful' :
+                        invest.status === 'pending' ? 'Pending' : 'Rejected',
                     investor: invest.user.name,
                     investor_email: invest.user.email,
                     id_user: invest.user.id_user,
                     originalType: 'invest',
                     proof: invest.proof || null
                 })),
-                
+
                 // Withdrawals
                 ...withdrawals.map(withdrawal => ({
                     id: withdrawal.id,
                     date: withdrawal.date,
                     type: 'Withdrawal',
                     amount: parseFloat(withdrawal.amount),
-                    status: withdrawal.status === 'success' ? 'Successful' : 
-                            withdrawal.status === 'pending' ? 'Pending' : 'Rejected',
+                    status: withdrawal.status === 'success' ? 'Successful' :
+                        withdrawal.status === 'pending' ? 'Pending' : 'Rejected',
                     investor: withdrawal.user.name,
                     investor_email: withdrawal.user.email,
                     id_user: withdrawal.user.id_user,
@@ -290,6 +386,17 @@ class AdminController {
             // Urutkan berdasarkan tanggal terbaru
             allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
 
+            // Dividen = total withdrawal yang sukses oleh admin ke semua user
+            // (untuk sementara tidak dihitung karena tidak ada fitur dividen di aplikasi)
+            // const totalDividends = allTransactions
+            //     .filter(tx => tx.type === 'Withdrawal' && tx.status === 'Successful')
+            //     .reduce((sum, tx) => sum + tx.amount, 0);
+            // total Investor = jumlah user dengan role investor
+            // const totalInvestors = await prisma.user.count({ where: { role: 'investor' } });
+            // Total Investasi = total investasi yang sukses oleh semua user
+            // const totalInvestments = allTransactions
+            //     .filter(tx => tx.type === 'Investment' && tx.status === 'Successful')
+            //     .reduce((sum, tx) => sum + tx.amount, 0);
             res.status(200).json({
                 success: true,
                 data: allTransactions
@@ -297,6 +404,126 @@ class AdminController {
 
         } catch (error) {
             console.error('Get all transactions error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Terjadi kesalahan server'
+            });
+        }
+    }
+
+    // Get admin dashboard statistics
+    async getDashboardStats(req, res) {
+        try {
+            // Ambil statistik dari database
+            const [totalInvestors, allInvestments, allWithdrawals, recentInvests, recentWithdrawals] = await Promise.all([
+                // Total Investor
+                prisma.user.count({ where: { role: 'investor' } }),
+
+                // Semua investasi untuk statistik
+                prisma.invest.findMany({
+                    select: {
+                        amount: true,
+                        status: true
+                    }
+                }),
+
+                // Semua withdrawal untuk statistik
+                prisma.withdrawal.findMany({
+                    select: {
+                        amount: true,
+                        status: true
+                    }
+                }),
+
+                // Investasi terbaru untuk transaksi
+                prisma.invest.findMany({
+                    include: {
+                        user: {
+                            select: {
+                                id_user: true,
+                                name: true,
+                                email: true
+                            }
+                        }
+                    },
+                    orderBy: { date: 'desc' },
+                    take: 10
+                }),
+
+                // Withdrawal terbaru untuk transaksi
+                prisma.withdrawal.findMany({
+                    include: {
+                        user: {
+                            select: {
+                                id_user: true,
+                                name: true,
+                                email: true
+                            }
+                        }
+                    },
+                    orderBy: { date: 'desc' },
+                    take: 10
+                })
+            ]);
+
+            // Hitung Total Investment Funds (investasi yang sukses)
+            const totalInvestmentFunds = allInvestments
+                .filter(investment => investment.status === 'success')
+                .reduce((sum, investment) => sum + parseFloat(investment.amount), 0);
+
+            // Hitung Total Dividen (withdrawal yang sukses)
+            const totalDividend = allWithdrawals
+                .filter(withdrawal => withdrawal.status === 'success')
+                .reduce((sum, withdrawal) => sum + parseFloat(withdrawal.amount), 0);
+
+            // Gabungkan transaksi terbaru
+            const allRecentTransactions = [
+                // Format investasi
+                ...recentInvests.map(invest => ({
+                    id: invest.id_invest,
+                    date: invest.date,
+                    type: 'Investment',
+                    amount: parseFloat(invest.amount),
+                    status: invest.status === 'success' ? 'Successful' :
+                        invest.status === 'pending' ? 'Pending' : 'Rejected',
+                    investor: invest.user.name,
+                    investor_email: invest.user.email,
+                    id_user: invest.user.id_user
+                })),
+
+                // Format withdrawal
+                ...recentWithdrawals.map(withdrawal => ({
+                    id: withdrawal.id,
+                    date: withdrawal.date,
+                    type: 'Withdrawal',
+                    amount: parseFloat(withdrawal.amount),
+                    status: withdrawal.status === 'success' ? 'Successful' :
+                        withdrawal.status === 'pending' ? 'Pending' : 'Rejected',
+                    investor: withdrawal.user.name,
+                    investor_email: withdrawal.user.email,
+                    id_user: withdrawal.user.id_user
+                }))
+            ];
+
+            // Urutkan berdasarkan tanggal terbaru dan ambil 10 transaksi teratas
+            const recentTransactions = allRecentTransactions
+                .sort((a, b) => new Date(b.date) - new Date(a.date))
+                .slice(0, 10);
+
+            const dashboardStats = {
+                totalInvestors,
+                totalInvestmentFunds,
+                totalDividend,
+                transactions: recentTransactions
+            };
+
+            res.status(200).json({
+                success: true,
+                data: dashboardStats
+            });
+
+        } catch (error) {
+            console.error('Get dashboard stats error:', error);
             res.status(500).json({
                 success: false,
                 message: 'Terjadi kesalahan server'

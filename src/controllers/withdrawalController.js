@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
 const emailService = require('../services/emailService');
+const cloudinary = require('../services/cloudService');
 
 class WithdrawalController {
     // Membuat withdrawal baru
@@ -170,6 +171,7 @@ class WithdrawalController {
                 date: withdrawal.date,
                 amount: parseFloat(withdrawal.amount),
                 status: withdrawal.status,
+                proof: withdrawal.proof,
                 investor: withdrawal.user.name,
                 investor_email: withdrawal.user.email,
                 id_user: withdrawal.user.id_user
@@ -182,6 +184,90 @@ class WithdrawalController {
 
         } catch (error) {
             console.error('Get all withdrawals error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Terjadi kesalahan server'
+            });
+        }
+    }
+
+    // Menghapus withdrawal (untuk admin)
+    async deleteWithdrawal(req, res) {
+        try {
+            const { id } = req.params;
+            const deletedWithdrawal = await prisma.withdrawal.delete({
+                where: { id: parseInt(id) }
+            });
+            res.status(200).json({
+                success: true,
+                message: 'Withdrawal berhasil dihapus',
+                data: deletedWithdrawal
+            });
+        } catch (error) {
+            console.error('Delete withdrawal error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Terjadi kesalahan server'
+            });
+        }
+    }
+
+    // Upload proof untuk withdrawal (untuk admin)
+    async uploadProof(req, res) {
+        try {
+            const { id } = req.params;
+
+            // Upload file ke Cloudinary
+            let proofUrl = null;
+            if (req.file) {
+                try {
+                    const uploadResult = await new Promise((resolve, reject) => {
+                        cloudinary.uploader.upload_stream(
+                            {
+                                resource_type: 'image',
+                                folder: 'withdrawal-proofs',
+                                public_id: `withdrawal_proof_${id}_${Date.now()}`,
+                                format: 'jpg'
+                            },
+                            (error, result) => {
+                                if (error) reject(error);
+                                else resolve(result);
+                            }
+                        ).end(req.file.buffer);
+                    });
+
+                    proofUrl = uploadResult.secure_url;
+                } catch (uploadError) {
+                    console.error('Upload to Cloudinary failed:', uploadError);
+                    return res.status(500).json({
+                        success: false,
+                        message: 'Gagal mengupload gambar ke server'
+                    });
+                }
+            } else {
+                return res.status(400).json({
+                    success: false,
+                    message: 'File proof harus diupload'
+                });
+            }
+
+            // Update withdrawal dengan URL proof
+            const updatedWithdrawal = await prisma.withdrawal.update({
+                where: { id: parseInt(id) },
+                data: { proof: proofUrl }
+            });
+
+            res.status(200).json({
+                success: true,
+                message: 'Proof berhasil diupload',
+                data: {
+                    id: updatedWithdrawal.id,
+                    proof: updatedWithdrawal.proof
+                }
+            });
+
+        } catch (error) {
+            console.error('Upload proof error:', error);
             res.status(500).json({
                 success: false,
                 message: 'Terjadi kesalahan server'

@@ -45,7 +45,8 @@ class DashboardController {
                 .reduce((sum, withdrawal) => sum + parseFloat(withdrawal.amount), 0);
 
             const dividendEarnings = totalWithdrawals > 0 ? totalWithdrawals : 0;
-            const totalReturns = dailyReturn * totalDays;
+            const totalReturns = dailyReturn * totalDays - dividendEarnings;
+            // const dividendEarnings = Math.max(0, totalReturns - totalWithdrawals);
 
             // Gabungkan semua transaksi
             const allTransactions = [
@@ -57,7 +58,8 @@ class DashboardController {
                     status: invest.status === 'success' ? 'Successful' :
                         invest.status === 'pending' ? 'Pending' : 'Rejected',
                     id: invest.id_invest,
-                    originalType: 'invest'
+                    originalType: 'invest',
+                    proof: invest.proof || null
                 })),
 
                 // Withdrawals
@@ -68,7 +70,8 @@ class DashboardController {
                     status: withdrawal.status === 'success' ? 'Successful' :
                         withdrawal.status === 'pending' ? 'Pending' : 'Rejected',
                     id: withdrawal.id,
-                    originalType: 'withdrawal'
+                    originalType: 'withdrawal',
+                    proof: withdrawal.proof || null
                 }))
             ];
 
@@ -105,107 +108,104 @@ class DashboardController {
 
     // Mendapatkan data dashboard admin
     async getAdminDashboard(req, res) {
-        // Ambil semua data dari database dengan informasi user
-        const [invests, withdrawals] = await Promise.all([
-            prisma.invest.findMany({
-                include: {
-                    user: {
-                        select: {
-                            id_user: true,
-                            name: true,
-                            email: true
+        try {
+            // Ambil semua data dari database dengan informasi user
+            const [invests, withdrawals] = await Promise.all([
+                prisma.invest.findMany({
+                    include: {
+                        user: {
+                            select: {
+                                id_user: true,
+                                name: true,
+                                email: true
+                            }
                         }
-                    }
-                },
-                orderBy: { date: 'desc' }
-            }),
-            prisma.withdrawal.findMany({
-                include: {
-                    user: {
-                        select: {
-                            id_user: true,
-                            name: true,
-                            email: true
+                    },
+                    orderBy: { date: 'desc' }
+                }),
+                prisma.withdrawal.findMany({
+                    include: {
+                        user: {
+                            select: {
+                                id_user: true,
+                                name: true,
+                                email: true
+                            }
                         }
-                    }
-                },
-                orderBy: { date: 'desc' }
-            })
-        ]);
-        // Hitung total dana investasi yang berhasil
-        const totalInvestmentFunds = invests
-            .filter(invest => invest.status === 'success')
-            .reduce((sum, invest) => sum + parseFloat(invest.amount), 0);
+                    },
+                    orderBy: { date: 'desc' }
+                })
+            ]);
+            // Hitung total dana investasi yang berhasil
+            const totalInvestmentFunds = invests
+                .filter(invest => invest.status === 'success')
+                .reduce((sum, invest) => sum + parseFloat(invest.amount), 0);
 
-        // Hitung total investor unik
-        const uniqueInvestors = new Set(invests.map(invest => invest.id_user));
-        const totalInvestor = uniqueInvestors.size;
+            // Hitung total investor unik
+            const uniqueInvestors = new Set(invests.map(invest => invest.id_user));
+            const totalInvestor = uniqueInvestors.size;
 
-        // Hitung biaya operasional (bisa disesuaikan)
-        const operationalCost = 100000;
+            // Hitung total dividend yang sudah dibayarkan
+            const dividend = withdrawals
+                .filter(withdrawal => withdrawal.status === 'success')
+                .reduce((sum, withdrawal) => sum + parseFloat(withdrawal.amount), 0);
 
-        // Hitung total dividend yang sudah dibayarkan
-        const dividend = withdrawals
-            .filter(withdrawal => withdrawal.status === 'success')
-            .reduce((sum, withdrawal) => sum + parseFloat(withdrawal.amount), 0);
+            // Gabungkan semua transaksi
+            const allTransactions = [
+                // Investasi
+                ...invests.map(invest => ({
+                    id: invest.id_invest,
+                    date: invest.date,
+                    type: 'Investment',
+                    amount: parseFloat(invest.amount),
+                    status: invest.status === 'success' ? 'Successful' :
+                        invest.status === 'pending' ? 'Pending' : 'Rejected',
+                    investor: invest.user.name,
+                    investor_email: invest.user.email,
+                    id_user: invest.user.id_user,
+                    originalType: 'invest',
+                    proof: invest.proof || null
+                })),
 
-        // Hitung keuntungan bersih (total investasi - dividend - biaya operasional)
-        const netProfit = totalInvestmentFunds - dividend - operationalCost;
+                // Withdrawals
+                ...withdrawals.map(withdrawal => ({
+                    id: withdrawal.id,
+                    date: withdrawal.date,
+                    type: 'Withdrawal',
+                    amount: parseFloat(withdrawal.amount),
+                    status: withdrawal.status === 'success' ? 'Successful' :
+                        withdrawal.status === 'pending' ? 'Pending' : 'Rejected',
+                    investor: withdrawal.user.name,
+                    investor_email: withdrawal.user.email,
+                    id_user: withdrawal.user.id_user,
+                    originalType: 'withdrawal',
+                    proof: withdrawal.proof || null
+                }))
+            ];
 
-        // Gabungkan semua transaksi
-        const allTransactions = [
-            // Investasi
-            ...invests.map(invest => ({
-                id: invest.id_invest,
-                date: invest.date,
-                type: 'Investment',
-                amount: parseFloat(invest.amount),
-                status: invest.status === 'success' ? 'Successful' :
-                    invest.status === 'pending' ? 'Pending' : 'Rejected',
-                investor: invest.user.name,
-                investor_email: invest.user.email,
-                id_user: invest.user.id_user,
-                originalType: 'invest',
-                proof: invest.proof || null
-            })),
+            // Urutkan berdasarkan tanggal terbaru
+            allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-            // Withdrawals
-            ...withdrawals.map(withdrawal => ({
-                id: withdrawal.id,
-                date: withdrawal.date,
-                type: 'Withdrawal',
-                amount: parseFloat(withdrawal.amount),
-                status: withdrawal.status === 'success' ? 'Successful' :
-                    withdrawal.status === 'pending' ? 'Pending' : 'Rejected',
-                investor: withdrawal.user.name,
-                investor_email: withdrawal.user.email,
-                id_user: withdrawal.user.id_user,
-                originalType: 'withdrawal',
-                proof: null
-            }))
-        ];
+            // Ambil 10 transaksi terbaru
+            const recentTransactions = allTransactions.slice(0, 10);
 
-        // Urutkan berdasarkan tanggal terbaru
-        allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+            res.status(200).json({
+                success: true,
+                data: {
+                    totalInvestmentFunds,
+                    totalInvestor,
+                    dividend,
+                    transactions: recentTransactions
+                }
+            });
 
-        // Ambil 10 transaksi terbaru
-        const recentTransactions = allTransactions.slice(0, 10);
-
-        res.status(200).json({
-            success: true,
-            data: {
-                totalInvestmentFunds,
-                totalInvestor,
-                dividend,
-                transactions: recentTransactions
-            }
-        });
-    } catch(error) {
-        console.error('Get admin dashboard error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Terjadi kesalahan server'
-        });
+        } catch (error) {
+            console.error('Get admin dashboard error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Terjadi kesalahan server'
+            });
+        }
     }
 }
 

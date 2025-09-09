@@ -69,7 +69,7 @@ class InvestController {
                             }
                         ).end(req.file.buffer);
                     });
-                    
+
                     proofUrl = uploadResult.secure_url;
                 } catch (uploadError) {
                     console.error('Cloudinary upload error:', uploadError);
@@ -190,6 +190,29 @@ class InvestController {
             });
         } catch (error) {
             console.error('Get all investments error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Terjadi kesalahan server'
+            });
+        }
+    }
+
+    // Menghapus investasi (untuk admin)
+    async deleteInvestment(req, res) {
+        try {
+            const { id } = req.params;
+
+            const deletedInvest = await prisma.invest.delete({
+                where: { id_invest: parseInt(id) }
+            });
+
+            res.status(200).json({
+                success: true,
+                message: 'Investasi berhasil dihapus',
+                data: deletedInvest
+            });
+        } catch (error) {
+            console.error('Delete investment error:', error);
             res.status(500).json({
                 success: false,
                 message: 'Terjadi kesalahan server'

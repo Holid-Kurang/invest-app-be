@@ -12,18 +12,18 @@ datasource db {
 
 // Users table
 model User {
-  id_user    Int       @id @default(autoincrement())
-  name       String    @db.VarChar(100)
-  email      String    @unique @db.VarChar(100)
-  password   String    @db.VarChar(100)
-  role       UserRole  @default(investor)
-  created_at DateTime  @default(now())
-  updated_at DateTime  @updatedAt
-  
+  id_user    Int      @id @default(autoincrement())
+  name       String   @db.VarChar(100)
+  email      String   @unique @db.VarChar(100)
+  password   String   @db.VarChar(100)
+  role       UserRole @default(investor)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
   // Relations
   invests     Invest[]
   withdrawals Withdrawal[]
-  
+
   @@map("users")
 }
 
@@ -35,24 +35,25 @@ model Invest {
   proof     String?  @db.Text
   status    Status   @default(pending)
   date      DateTime @default(now())
-  
+
   // Relations
   user User @relation(fields: [id_user], references: [id_user])
-  
+
   @@map("invest")
 }
 
 // Withdrawal table
 model Withdrawal {
-  id      Int              @id @default(autoincrement())
+  id      Int      @id @default(autoincrement())
   id_user Int
-  amount  Decimal          @db.Decimal(12, 2)
-  status  Status @default(pending)
-  date    DateTime         @default(now())
-  
+  amount  Decimal  @db.Decimal(12, 2)
+  proof   String?  @db.Text
+  status  Status   @default(pending)
+  date    DateTime @default(now())
+
   // Relations
   user User @relation(fields: [id_user], references: [id_user])
-  
+
   @@map("withdrawal")
 }
 
