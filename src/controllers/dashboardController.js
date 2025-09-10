@@ -44,9 +44,8 @@ class DashboardController {
                 .filter(withdrawal => withdrawal.status === 'success')
                 .reduce((sum, withdrawal) => sum + parseFloat(withdrawal.amount), 0);
 
-            const dividendEarnings = totalWithdrawals > 0 ? totalWithdrawals : 0;
-            const totalReturns = dailyReturn * totalDays - dividendEarnings;
-            // const dividendEarnings = Math.max(0, totalReturns - totalWithdrawals);
+            const totalReturns = dailyReturn * totalDays;
+            const dividendEarnings = totalReturns - totalWithdrawals > 0 ? totalReturns - totalWithdrawals : 0;
 
             // Gabungkan semua transaksi
             const allTransactions = [
