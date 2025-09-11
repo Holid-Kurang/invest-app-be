@@ -89,7 +89,8 @@ class DashboardController {
                         dailyReturn,
                         totalReturns,
                         dividendEarnings,
-                        totalDays
+                        totalDays,
+                        totalWithdrawals
                     },
                     transactions: recentTransactions,
                     allTransactions

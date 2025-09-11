@@ -262,16 +262,34 @@ class AdminController {
                 })
             ]);
 
-            // Calculate statistics
+            // Hitung total investasi yang berhasil
             const totalInvestment = investments
-                .filter(inv => inv.status === 'success')
-                .reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+                .filter(invest => invest.status === 'success')
+                .reduce((sum, invest) => sum + parseFloat(invest.amount), 0);
 
-            const totalWithdrawal = withdrawals
-                .filter(wd => wd.status === 'success')
-                .reduce((sum, wd) => sum + parseFloat(wd.amount), 0);
+            // Hitung return-related statistics
+            const annualReturn = totalInvestment * 0.12;
+            const dailyReturn = annualReturn / 365;
 
-            const totalDividendEarnings = totalWithdrawal; // Withdrawal yang sukses = dividend yang sudah ditarik
+            // Hitung total hari investasi
+            const firstInvestment = investments
+                .filter(invest => invest.status === 'success')
+                .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+
+            let totalDays = 0;
+            if (firstInvestment) {
+                const startDate = new Date(firstInvestment.date);
+                const currentDate = new Date();
+                totalDays = Math.floor((currentDate - startDate) / (1000 * 60 * 60 * 24));
+            }
+
+            // Hitung total withdrawal yang berhasil
+            const totalWithdrawals = withdrawals
+                .filter(withdrawal => withdrawal.status === 'success')
+                .reduce((sum, withdrawal) => sum + parseFloat(withdrawal.amount), 0);
+
+            const totalReturns = dailyReturn * totalDays;
+            const dividendEarnings = totalReturns - totalWithdrawals > 0 ? totalReturns - totalWithdrawals : 0;
 
             // Format transaction history
             const transactionHistory = [
@@ -299,8 +317,12 @@ class AdminController {
                 investor,
                 statistics: {
                     totalInvestment,
-                    totalWithdrawal,
-                    totalDividendEarnings
+                    annualReturn,
+                    dailyReturn,
+                    totalWithdrawals,
+                    totalReturns,
+                    dividendEarnings,
+                    totalDays
                 },
                 transactionHistory
             };
