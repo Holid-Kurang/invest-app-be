@@ -1,138 +1,146 @@
 const prisma = require('../config/database');
 const emailService = require('../services/emailService');
 const cloudinary = require('../services/cloudService');
+const { TRANSACTION_TYPE, STATUS, SUCCESS_MESSAGES, ERROR_MESSAGES, CLOUDINARY } = require('../config/constants');
+const ErrorHandler = require('../utils/errorHandler');
+const ResponseFormatter = require('../utils/responseFormatter');
+const AmountValidator = require('../utils/amountValidator');
 
 class InvestController {
-    // Membuat investasi baru
+    /**
+     * Get user email from JWT or database
+     */
+    async getUserEmail(userId, jwtEmail) {
+        if (jwtEmail) {
+            return jwtEmail;
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { id_user: userId },
+            select: { email: true }
+        });
+
+        return user?.email || null;
+    }
+
+    /**
+     * Upload proof file to Cloudinary
+     */
+    async uploadProofToCloudinary(file, userId) {
+        if (!file) {
+            return null;
+        }
+
+        try {
+            const uploadResult = await new Promise((resolve, reject) => {
+                cloudinary.uploader.upload_stream(
+                    {
+                        resource_type: CLOUDINARY.RESOURCE_TYPE,
+                        folder: CLOUDINARY.FOLDER,
+                        public_id: `proof_${userId}_${Date.now()}`,
+                        format: CLOUDINARY.FORMAT
+                    },
+                    (error, result) => {
+                        if (error) reject(error);
+                        else resolve(result);
+                    }
+                ).end(file.buffer);
+            });
+
+            return uploadResult.secure_url;
+        } catch (error) {
+            console.error('Cloudinary upload error:', error);
+            throw new Error('Gagal mengupload bukti pembayaran');
+        }
+    }
+
+    /**
+     * Send email notification to admin
+     */
+    async sendAdminNotification(investId, investData, userEmail, file) {
+        if (!file) {
+            return;
+        }
+
+        const fileData = {
+            buffer: file.buffer,
+            originalname: file.originalname,
+            mimetype: file.mimetype
+        };
+
+        await emailService.sendTransactionNotificationToAdmin(
+            investId,
+            investData,
+            userEmail,
+            TRANSACTION_TYPE.INVESTMENT,
+            fileData
+        );
+    }
+
+    /**
+     * Create new investment
+     */
     async createInvest(req, res) {
         try {
             const { amount } = req.body;
             const userId = req.user.id_user;
-            let userEmail = req.user.email;
 
-            // Jika email tidak ada di JWT, ambil dari database
+            // Get user email
+            const userEmail = await this.getUserEmail(userId, req.user.email);
             if (!userEmail) {
-                const user = await prisma.user.findUnique({
-                    where: { id_user: userId },
-                    select: { email: true }
-                });
-                userEmail = user?.email;
+                return ErrorHandler.validationError(res, 'Email user tidak ditemukan');
             }
 
-            // Validasi email
-            if (!userEmail) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Email user tidak ditemukan'
-                });
+            // Validate amount
+            const validation = AmountValidator.validate(amount);
+            if (!validation.valid) {
+                return ErrorHandler.validationError(res, validation.error);
             }
 
-            // Validasi input
-            if (!amount) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Amount harus diisi'
-                });
-            }
+            // Upload proof to Cloudinary
+            const proofUrl = await this.uploadProofToCloudinary(req.file, userId);
 
-            // Validasi amount harus positif
-            if (parseFloat(amount) <= 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Amount harus lebih dari 0'
-                });
-            }
-
-            // Validasi amount tidak melebihi batas maksimal (10^10 = 10,000,000,000)
-            if (parseFloat(amount) >= 10000000000) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Amount tidak boleh melebihi 10,000,000,000'
-                });
-            }
-
-            // Upload file ke Cloudinary
-            let proofUrl = null;
-            if (req.file) {
-                try {
-                    const uploadResult = await new Promise((resolve, reject) => {
-                        cloudinary.uploader.upload_stream(
-                            {
-                                resource_type: 'image',
-                                folder: 'investment-proofs',
-                                public_id: `proof_${userId}_${Date.now()}`,
-                                format: 'jpg'
-                            },
-                            (error, result) => {
-                                if (error) reject(error);
-                                else resolve(result);
-                            }
-                        ).end(req.file.buffer);
-                    });
-
-                    proofUrl = uploadResult.secure_url;
-                } catch (uploadError) {
-                    console.error('Cloudinary upload error:', uploadError);
-                    return res.status(500).json({
-                        success: false,
-                        message: 'Gagal mengupload bukti pembayaran'
-                    });
-                }
-            }
-
-            // Simpan investasi ke database dengan URL Cloudinary
+            // Create investment record
             const newInvest = await prisma.invest.create({
                 data: {
                     id_user: userId,
-                    amount: parseFloat(amount),
-                    proof: proofUrl, // Simpan URL dari Cloudinary
-                    status: 'pending'
+                    amount: validation.amount,
+                    proof: proofUrl,
+                    status: STATUS.PENDING
                 }
             });
 
-            // Siapkan data file untuk email
-            const fileData = {
-                buffer: req.file.buffer,
-                originalname: req.file.originalname,
-                mimetype: req.file.mimetype
-            };
-
-            const type = 'Investment';
-            const id_invest = newInvest.id_invest;
-            await emailService.sendTransactionNotificationToAdmin(
-                id_invest,
+            // Send notification to admin
+            await this.sendAdminNotification(
+                newInvest.id_invest,
                 newInvest,
                 userEmail,
-                type,
-                fileData // Kirim file buffer, bukan path
+                req.file
             );
 
-            res.status(201).json({
-                success: true,
-                message: 'Investasi berhasil dibuat dan notifikasi telah dikirim',
-            });
+            return ResponseFormatter.created(
+                res,
+                null,
+                SUCCESS_MESSAGES.INVEST_CREATED
+            );
 
         } catch (error) {
-            console.error('Create invest error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Terjadi kesalahan server'
-            });
+            return ErrorHandler.handleError(res, error);
         }
     }
 
-    // Update status investasi (untuk admin)
+    /**
+     * Update investment status (admin only)
+     */
     async updateInvestStatus(req, res) {
         try {
             const { id } = req.params;
             const { status } = req.body;
 
-            // Validasi status
-            if (!['pending', 'success', 'rejected'].includes(status)) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Status tidak valid'
-                });
+            // Validate status
+            const StatusFormatter = require('../utils/statusFormatter');
+            if (!StatusFormatter.isValidStatus(status)) {
+                return ErrorHandler.validationError(res, ERROR_MESSAGES.INVALID_STATUS);
             }
 
             const updatedInvest = await prisma.invest.update({
@@ -140,22 +148,20 @@ class InvestController {
                 data: { status }
             });
 
-            res.status(200).json({
-                success: true,
-                message: 'Status investasi berhasil diupdate',
-                data: updatedInvest
-            });
+            return ResponseFormatter.success(
+                res,
+                updatedInvest,
+                SUCCESS_MESSAGES.STATUS_UPDATED
+            );
 
         } catch (error) {
-            console.error('Update invest status error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Terjadi kesalahan server'
-            });
+            return ErrorHandler.handleError(res, error);
         }
     }
 
-    // Mendapatkan semua investasi untuk admin
+    /**
+     * Get all investments (admin only)
+     */
     async getAllInvestments(req, res) {
         try {
             const investments = await prisma.invest.findMany({
@@ -171,7 +177,6 @@ class InvestController {
                 orderBy: { date: 'desc' }
             });
 
-            // Format data untuk response
             const formattedInvestments = investments.map(investment => ({
                 id: investment.id_invest,
                 date: investment.date,
@@ -181,23 +186,19 @@ class InvestController {
                 investor_email: investment.user.email,
                 id_user: investment.user.id_user,
                 hasProof: !!investment.proof,
-                proofUrl: investment.proof // URL dari Cloudinary
+                proofUrl: investment.proof
             }));
 
-            res.status(200).json({
-                success: true,
-                data: formattedInvestments
-            });
+            return ResponseFormatter.success(res, formattedInvestments);
+
         } catch (error) {
-            console.error('Get all investments error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Terjadi kesalahan server'
-            });
+            return ErrorHandler.handleError(res, error);
         }
     }
 
-    // Menghapus investasi (untuk admin)
+    /**
+     * Delete investment (admin only)
+     */
     async deleteInvestment(req, res) {
         try {
             const { id } = req.params;
@@ -206,17 +207,14 @@ class InvestController {
                 where: { id_invest: parseInt(id) }
             });
 
-            res.status(200).json({
-                success: true,
-                message: 'Investasi berhasil dihapus',
-                data: deletedInvest
-            });
+            return ResponseFormatter.success(
+                res,
+                deletedInvest,
+                'Investasi berhasil dihapus'
+            );
+
         } catch (error) {
-            console.error('Delete investment error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Terjadi kesalahan server'
-            });
+            return ErrorHandler.handleError(res, error);
         }
     }
 }

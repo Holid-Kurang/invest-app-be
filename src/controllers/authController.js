@@ -1,46 +1,72 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/database');
+const { ROLE, BUSINESS, SUCCESS_MESSAGES, ERROR_MESSAGES } = require('../config/constants');
+const ErrorHandler = require('../utils/errorHandler');
+const ResponseFormatter = require('../utils/responseFormatter');
 
 class AuthController {
-  // Register user baru
+  /**
+   * Generate JWT token for user
+   */
+  generateToken(user) {
+    return jwt.sign(
+      { id_user: user.id_user, email: user.email, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: BUSINESS.JWT_EXPIRES_IN }
+    );
+  }
+
+  /**
+   * Format user response
+   */
+  formatUserResponse(user) {
+    return {
+      id_user: user.id_user,
+      email: user.email,
+      role: user.role
+    };
+  }
+
+  /**
+   * Register new user
+   */
   async register(req, res) {
     try {
-      const { email, password, role = 'investor' } = req.body;
+      const { email, password, role = ROLE.INVESTOR } = req.body;
 
-      // Validasi input
+      // Validate input
       if (!email || !password) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email dan password harus diisi'
-        });
+        return ErrorHandler.validationError(
+          res,
+          'Email dan password harus diisi'
+        );
       }
 
-      // Validasi role
-      if (!['investor', 'admin'].includes(role)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Role harus investor atau admin'
-        });
+      // Validate role
+      if (!Object.values(ROLE).includes(role)) {
+        return ErrorHandler.validationError(
+          res,
+          'Role harus investor atau admin'
+        );
       }
 
-      // Cek apakah email sudah terdaftar
+      // Check if email already exists
       const existingUser = await prisma.user.findUnique({
         where: { email }
       });
 
       if (existingUser) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email sudah terdaftar'
-        });
+        return ErrorHandler.validationError(
+          res,
+          ERROR_MESSAGES.EMAIL_ALREADY_EXISTS
+        );
       }
 
       // Hash password
-      const saltRounds = 10;
-      const hashedPassword = await bcrypt.hash(password, saltRounds);
+      const hashedPassword = await bcrypt.hash(password, BUSINESS.BCRYPT_SALT_ROUNDS);
 
-      // Simpan user baru
+      // Create new user
       const newUser = await prisma.user.create({
         data: {
           email,
@@ -50,99 +76,71 @@ class AuthController {
       });
 
       // Generate JWT token
-      const token = jwt.sign(
-        { id_user: newUser.id_user, email: newUser.email, role: newUser.role },
-        process.env.JWT_SECRET,
-        { expiresIn: '24h' }
-      );
+      const token = this.generateToken(newUser);
 
-      res.status(201).json({
-        success: true,
-        message: 'User berhasil didaftarkan',
-        data: {
-          user: {
-            id_user: newUser.id_user,
-            email: newUser.email,
-            role: newUser.role
-          },
-          token
-        }
-      });
+      return ResponseFormatter.created(res, {
+        user: this.formatUserResponse(newUser),
+        token
+      }, SUCCESS_MESSAGES.REGISTER_SUCCESS);
 
     } catch (error) {
-      console.error('Register error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Terjadi kesalahan server'
-      });
+      return ErrorHandler.handleError(res, error);
     }
   }
 
-  // Login user
+  /**
+   * Login user
+   */
   async login(req, res) {
     try {
       const { email, password } = req.body;
 
-      // Validasi input
+      // Validate input
       if (!email || !password) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email dan password harus diisi'
-        });
+        return ErrorHandler.validationError(
+          res,
+          'Email dan password harus diisi'
+        );
       }
 
-      // Cari user berdasarkan email
+      // Find user by email
       const user = await prisma.user.findUnique({
         where: { email }
       });
 
       if (!user) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email atau password salah'
-        });
+        return ErrorHandler.validationError(
+          res,
+          ERROR_MESSAGES.INVALID_CREDENTIALS
+        );
       }
 
-      // Verifikasi password
+      // Verify password
       const isPasswordValid = await bcrypt.compare(password, user.password);
 
       if (!isPasswordValid) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email atau password salah'
-        });
+        return ErrorHandler.validationError(
+          res,
+          ERROR_MESSAGES.INVALID_CREDENTIALS
+        );
       }
 
       // Generate JWT token
-      const token = jwt.sign(
-        { id_user: user.id_user, email: user.email, role: user.role },
-        process.env.JWT_SECRET,
-        { expiresIn: '24h' }
-      );
+      const token = this.generateToken(user);
 
-      res.status(200).json({
-        success: true,
-        message: 'Login berhasil',
-        data: {
-          user: {
-            id_user: user.id_user,
-            email: user.email,
-            role: user.role
-          },
-          token
-        }
-      });
+      return ResponseFormatter.success(res, {
+        user: this.formatUserResponse(user),
+        token
+      }, SUCCESS_MESSAGES.LOGIN_SUCCESS);
 
     } catch (error) {
-      console.error('Login error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Terjadi kesalahan server'
-      });
+      return ErrorHandler.handleError(res, error);
     }
   }
 
-  // Get profile user
+  /**
+   * Get user profile
+   */
   async getProfile(req, res) {
     try {
       const userId = req.user.id_user;
@@ -157,23 +155,15 @@ class AuthController {
       });
 
       if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: 'User tidak ditemukan'
-        });
+        return ErrorHandler.notFoundError(res, ERROR_MESSAGES.USER_NOT_FOUND);
       }
 
-      res.status(200).json({
-        success: true,
-        data: { user }
+      return ResponseFormatter.success(res, {
+        user: this.formatUserResponse(user)
       });
 
     } catch (error) {
-      console.error('Get profile error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Terjadi kesalahan server'
-      });
+      return ErrorHandler.handleError(res, error);
     }
   }
 }

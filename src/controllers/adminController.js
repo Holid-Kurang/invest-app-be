@@ -1,9 +1,16 @@
 const prisma = require('../config/database');
 const bcrypt = require('bcryptjs');
+const { ROLE, STATUS, SUCCESS_MESSAGES, ERROR_MESSAGES, BUSINESS } = require('../config/constants');
+const ErrorHandler = require('../utils/errorHandler');
+const ResponseFormatter = require('../utils/responseFormatter');
+const ReturnCalculationService = require('../services/returnCalculationService');
+const TransactionFormatterService = require('../services/transactionFormatterService');
 
 class AdminController {
 
-    // Get all users (admin only)
+    /**
+     * Get all users (admin only)
+     */
     async getAllUsers(req, res) {
         try {
             const users = await prisma.user.findMany({
@@ -18,31 +25,26 @@ class AdminController {
                 orderBy: { role: 'desc' }
             });
 
-            res.status(200).json({
-                success: true,
-                data: users
-            });
+            return ResponseFormatter.success(res, users);
 
         } catch (error) {
-            console.error('Get all users error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Terjadi kesalahan server'
-            });
+            return ErrorHandler.handleError(res, error);
         }
     }
 
-    // Create new investor (admin only)
+    /**
+     * Create new investor (admin only)
+     */
     async createInvestor(req, res) {
         try {
             const { name, email, password } = req.body;
 
             // Validation
             if (!name || !email || !password) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Name, email dan password diperlukan'
-                });
+                return ErrorHandler.validationError(
+                    res,
+                    'Name, email dan password diperlukan'
+                );
             }
 
             // Check if email already exists
@@ -51,21 +53,21 @@ class AdminController {
             });
 
             if (existingUser) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Email sudah terdaftar'
-                });
+                return ErrorHandler.validationError(
+                    res,
+                    ERROR_MESSAGES.EMAIL_ALREADY_EXISTS
+                );
             }
 
             // Create new investor
-            const hashedPassword = await bcrypt.hash(password, 10);
+            const hashedPassword = await bcrypt.hash(password, BUSINESS.BCRYPT_SALT_ROUNDS);
 
             const newInvestor = await prisma.user.create({
                 data: {
                     name,
                     email,
                     password: hashedPassword,
-                    role: 'investor'
+                    role: ROLE.INVESTOR
                 },
                 select: {
                     id_user: true,
@@ -77,22 +79,20 @@ class AdminController {
                 }
             });
 
-            res.status(201).json({
-                success: true,
-                data: newInvestor,
-                message: 'Investor berhasil dibuat'
-            });
+            return ResponseFormatter.created(
+                res,
+                newInvestor,
+                SUCCESS_MESSAGES.USER_CREATED
+            );
 
         } catch (error) {
-            console.error('Create investor error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Terjadi kesalahan server'
-            });
+            return ErrorHandler.handleError(res, error);
         }
     }
 
-    // Update investor (admin only)
+    /**
+     * Update investor (admin only)
+     */
     async updateInvestor(req, res) {
         try {
             const { id } = req.params;
@@ -100,25 +100,22 @@ class AdminController {
 
             // Validation
             if (!name || !email) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Name dan email diperlukan'
-                });
+                return ErrorHandler.validationError(
+                    res,
+                    'Name dan email diperlukan'
+                );
             }
 
             // Check if investor exists
             const existingInvestor = await prisma.user.findFirst({
                 where: {
                     id_user: parseInt(id),
-                    role: 'investor'
+                    role: ROLE.INVESTOR
                 }
             });
 
             if (!existingInvestor) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Investor tidak ditemukan'
-                });
+                return ErrorHandler.notFoundError(res, ERROR_MESSAGES.INVESTOR_NOT_FOUND);
             }
 
             // Check if email is taken by another user
@@ -130,17 +127,17 @@ class AdminController {
             });
 
             if (emailTaken) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Email sudah digunakan oleh user lain'
-                });
+                return ErrorHandler.validationError(
+                    res,
+                    'Email sudah digunakan oleh user lain'
+                );
             }
 
             // Update data
             const updateData = { name, email };
 
             if (password) {
-                updateData.password = await bcrypt.hash(password, 10);
+                updateData.password = await bcrypt.hash(password, BUSINESS.BCRYPT_SALT_ROUNDS);
             }
 
             const updatedInvestor = await prisma.user.update({
@@ -156,22 +153,20 @@ class AdminController {
                 }
             });
 
-            res.status(200).json({
-                success: true,
-                data: updatedInvestor,
-                message: 'Investor berhasil diupdate'
-            });
+            return ResponseFormatter.success(
+                res,
+                updatedInvestor,
+                SUCCESS_MESSAGES.USER_UPDATED
+            );
 
         } catch (error) {
-            console.error('Update investor error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Terjadi kesalahan server'
-            });
+            return ErrorHandler.handleError(res, error);
         }
     }
 
-    // Delete investor (admin only)
+    /**
+     * Delete investor (admin only)
+     */
     async deleteInvestor(req, res) {
         try {
             const { id } = req.params;
@@ -180,15 +175,12 @@ class AdminController {
             const existingInvestor = await prisma.user.findFirst({
                 where: {
                     id_user: parseInt(id),
-                    role: 'investor'
+                    role: ROLE.INVESTOR
                 }
             });
 
             if (!existingInvestor) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Investor tidak ditemukan'
-                });
+                return ErrorHandler.notFoundError(res, ERROR_MESSAGES.INVESTOR_NOT_FOUND);
             }
 
             // Check if investor has related data (investments, withdrawals)
@@ -198,10 +190,10 @@ class AdminController {
             ]);
 
             if (investmentCount > 0 || withdrawalCount > 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Tidak dapat menghapus investor yang memiliki data investasi atau withdrawal'
-                });
+                return ErrorHandler.validationError(
+                    res,
+                    ERROR_MESSAGES.INVESTOR_HAS_TRANSACTIONS
+                );
             }
 
             // Delete investor
@@ -209,142 +201,140 @@ class AdminController {
                 where: { id_user: parseInt(id) }
             });
 
-            res.status(200).json({
-                success: true,
-                message: 'Investor berhasil dihapus'
-            });
+            return ResponseFormatter.success(
+                res,
+                null,
+                SUCCESS_MESSAGES.INVESTOR_DELETED
+            );
 
         } catch (error) {
-            console.error('Delete investor error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Terjadi kesalahan server'
-            });
+            return ErrorHandler.handleError(res, error);
         }
     }
 
-    // Get investor details with investment history (admin only)
+    /**
+     * Fetch investor data by ID
+     */
+    async fetchInvestorData(id) {
+        const investor = await prisma.user.findFirst({
+            where: {
+                id_user: parseInt(id),
+                role: ROLE.INVESTOR
+            },
+            select: {
+                id_user: true,
+                name: true,
+                email: true,
+                role: true,
+                created_at: true
+            }
+        });
+
+        if (!investor) {
+            return null;
+        }
+
+        const [investments, withdrawals] = await Promise.all([
+            prisma.invest.findMany({
+                where: { id_user: parseInt(id) },
+                orderBy: { date: 'desc' }
+            }),
+            prisma.withdrawal.findMany({
+                where: { id_user: parseInt(id) },
+                orderBy: { date: 'desc' }
+            })
+        ]);
+
+        return { investor, investments, withdrawals };
+    }
+
+    /**
+     * Calculate investor statistics
+     */
+    calculateInvestorStatistics(investments, withdrawals) {
+        const totalInvestment = ReturnCalculationService.calculateTotalAmount(
+            investments,
+            STATUS.SUCCESS
+        );
+
+        const totalWithdrawals = ReturnCalculationService.calculateTotalAmount(
+            withdrawals,
+            STATUS.SUCCESS
+        );
+
+        const startDate = ReturnCalculationService.getEarliestInvestmentDate(investments);
+
+        if (!startDate) {
+            return {
+                totalInvestment: 0,
+                annualReturn: 0,
+                dailyReturn: 0,
+                totalWithdrawals: 0,
+                totalReturns: 0,
+                dividendEarnings: 0,
+                totalDays: 0
+            };
+        }
+
+        const dividendData = ReturnCalculationService.calculateDividends(
+            totalInvestment,
+            startDate,
+            totalWithdrawals
+        );
+
+        return {
+            totalInvestment,
+            annualReturn: dividendData.annualReturn,
+            dailyReturn: dividendData.dailyReturn,
+            totalWithdrawals,
+            totalReturns: dividendData.totalReturns,
+            dividendEarnings: dividendData.dividendEarnings,
+            totalDays: dividendData.totalDays
+        };
+    }
+
+    /**
+     * Get investor details with transactions and statistics
+     */
     async getInvestorDetails(req, res) {
         try {
             const { id } = req.params;
 
-            // Get investor info
-            const investor = await prisma.user.findFirst({
-                where: {
-                    id_user: parseInt(id),
-                    role: 'investor'
-                },
-                select: {
-                    id_user: true,
-                    name: true,
-                    email: true,
-                    role: true,
-                    created_at: true
-                }
-            });
-
-            if (!investor) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Investor tidak ditemukan'
-                });
+            // Fetch investor data
+            const data = await this.fetchInvestorData(id);
+            if (!data) {
+                return ErrorHandler.notFoundError(res, ERROR_MESSAGES.INVESTOR_NOT_FOUND);
             }
 
-            // Get investor's investment and withdrawal history
-            const [investments, withdrawals] = await Promise.all([
-                prisma.invest.findMany({
-                    where: { id_user: parseInt(id) },
-                    orderBy: { date: 'desc' }
-                }),
-                prisma.withdrawal.findMany({
-                    where: { id_user: parseInt(id) },
-                    orderBy: { date: 'desc' }
-                })
-            ]);
+            const { investor, investments, withdrawals } = data;
 
-            // Hitung total investasi yang berhasil
-            const totalInvestment = investments
-                .filter(invest => invest.status === 'success')
-                .reduce((sum, invest) => sum + parseFloat(invest.amount), 0);
-
-            // Hitung return-related statistics
-            const annualReturn = totalInvestment * 0.12;
-            const dailyReturn = annualReturn / 365;
-
-            // Hitung total hari investasi
-            const firstInvestment = investments
-                .filter(invest => invest.status === 'success')
-                .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
-
-            let totalDays = 0;
-            if (firstInvestment) {
-                const startDate = new Date(firstInvestment.date);
-                const currentDate = new Date();
-                totalDays = Math.floor((currentDate - startDate) / (1000 * 60 * 60 * 24));
-            }
-
-            // Hitung total withdrawal yang berhasil
-            const totalWithdrawals = withdrawals
-                .filter(withdrawal => withdrawal.status === 'success')
-                .reduce((sum, withdrawal) => sum + parseFloat(withdrawal.amount), 0);
-
-            const totalReturns = dailyReturn * totalDays;
-            const dividendEarnings = totalReturns - totalWithdrawals > 0 ? totalReturns - totalWithdrawals : 0;
+            // Calculate statistics
+            const statistics = this.calculateInvestorStatistics(investments, withdrawals);
 
             // Format transaction history
-            const transactionHistory = [
-                ...investments.map(inv => ({
-                    id: inv.id_invest,
-                    date: inv.date,
-                    type: 'Investment',
-                    amount: parseFloat(inv.amount),
-                    status: inv.status === 'success' ? 'Successful' :
-                        inv.status === 'pending' ? 'Pending' : 'Rejected',
-                    proof: inv.proof
-                })),
-                ...withdrawals.map(wd => ({
-                    id: wd.id,
-                    date: wd.date,
-                    type: 'Withdrawal',
-                    amount: parseFloat(wd.amount),
-                    status: wd.status === 'success' ? 'Successful' :
-                        wd.status === 'pending' ? 'Pending' : 'Rejected',
-                    proof: null
-                }))
-            ].sort((a, b) => new Date(b.date) - new Date(a.date));
+            const transactionHistory = TransactionFormatterService.mergeAndSortTransactions(
+                investments,
+                withdrawals
+            );
 
             const investorDetails = {
                 investor,
-                statistics: {
-                    totalInvestment,
-                    annualReturn,
-                    dailyReturn,
-                    totalWithdrawals,
-                    totalReturns,
-                    dividendEarnings,
-                    totalDays
-                },
+                statistics,
                 transactionHistory
             };
 
-            res.status(200).json({
-                success: true,
-                data: investorDetails
-            });
+            return ResponseFormatter.success(res, investorDetails);
 
         } catch (error) {
-            console.error('Get investor details error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Terjadi kesalahan server'
-            });
+            return ErrorHandler.handleError(res, error);
         }
     }
 
-    // Get all transactions history (admin only)
+    /**
+     * Get all transactions history (admin only)
+     */
     async getAllTransactions(req, res) {
         try {
-            // Ambil semua data dari database dengan informasi user
             const [invests, withdrawals] = await Promise.all([
                 prisma.invest.findMany({
                     include: {
@@ -372,115 +362,78 @@ class AdminController {
                 })
             ]);
 
-            // Gabungkan semua transaksi
-            const allTransactions = [
-                // Investasi
-                ...invests.map(invest => ({
-                    id: invest.id_invest,
-                    date: invest.date,
-                    type: 'Investment',
-                    amount: parseFloat(invest.amount),
-                    status: invest.status === 'success' ? 'Successful' :
-                        invest.status === 'pending' ? 'Pending' : 'Rejected',
-                    investor: invest.user.name,
-                    investor_email: invest.user.email,
-                    id_user: invest.user.id_user,
-                    originalType: 'invest',
-                    proof: invest.proof || null
-                })),
+            // Format investments with additional fields
+            const formattedInvests = invests.map(invest => ({
+                ...TransactionFormatterService.formatInvestment(invest),
+                id_user: invest.user.id_user,
+                originalType: 'invest'
+            }));
 
-                // Withdrawals
-                ...withdrawals.map(withdrawal => ({
-                    id: withdrawal.id,
-                    date: withdrawal.date,
-                    type: 'Withdrawal',
-                    amount: parseFloat(withdrawal.amount),
-                    status: withdrawal.status === 'success' ? 'Successful' :
-                        withdrawal.status === 'pending' ? 'Pending' : 'Rejected',
-                    investor: withdrawal.user.name,
-                    investor_email: withdrawal.user.email,
-                    id_user: withdrawal.user.id_user,
-                    originalType: 'withdrawal',
-                    proof: null
-                }))
-            ];
+            // Format withdrawals with additional fields
+            const formattedWithdrawals = withdrawals.map(withdrawal => ({
+                ...TransactionFormatterService.formatWithdrawal(withdrawal),
+                id_user: withdrawal.user.id_user,
+                originalType: 'withdrawal'
+            }));
 
-            // Urutkan berdasarkan tanggal terbaru
-            allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+            // Merge and sort transactions
+            const allTransactions = [...formattedInvests, ...formattedWithdrawals]
+                .sort((a, b) => new Date(b.date) - new Date(a.date));
 
-            // Dividen = total withdrawal yang sukses oleh admin ke semua user
-            // (untuk sementara tidak dihitung karena tidak ada fitur dividen di aplikasi)
-            // const totalDividends = allTransactions
-            //     .filter(tx => tx.type === 'Withdrawal' && tx.status === 'Successful')
-            //     .reduce((sum, tx) => sum + tx.amount, 0);
-            // total Investor = jumlah user dengan role investor
-            // const totalInvestors = await prisma.user.count({ where: { role: 'investor' } });
-            // Total Investasi = total investasi yang sukses oleh semua user
-            // const totalInvestments = allTransactions
-            //     .filter(tx => tx.type === 'Investment' && tx.status === 'Successful')
-            //     .reduce((sum, tx) => sum + tx.amount, 0);
-            res.status(200).json({
-                success: true,
-                data: allTransactions
-            });
+            return ResponseFormatter.success(res, allTransactions);
 
         } catch (error) {
-            console.error('Get all transactions error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Terjadi kesalahan server'
-            });
+            return ErrorHandler.handleError(res, error);
         }
     }
 
-    // Get admin dashboard statistics
+    /**
+     * Calculate dashboard statistics
+     */
+    calculateDashboardStatistics(allInvestments, allWithdrawals) {
+        const totalInvestmentFunds = allInvestments
+            .filter(inv => inv.status === STATUS.SUCCESS)
+            .reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+
+        const totalDividend = allWithdrawals
+            .filter(wd => wd.status === STATUS.SUCCESS)
+            .reduce((sum, wd) => sum + parseFloat(wd.amount), 0);
+
+        return { totalInvestmentFunds, totalDividend };
+    }
+
+    /**
+     * Get admin dashboard statistics
+     */
     async getDashboardStats(req, res) {
         try {
-            // Ambil statistik dari database
-            const [totalInvestors, allInvestments, allWithdrawals, recentInvests, recentWithdrawals] = await Promise.all([
-                // Total Investor
-                prisma.user.count({ where: { role: 'investor' } }),
-
-                // Semua investasi untuk statistik
+            const [
+                totalInvestors,
+                allInvestments,
+                allWithdrawals,
+                recentInvests,
+                recentWithdrawals
+            ] = await Promise.all([
+                prisma.user.count({ where: { role: ROLE.INVESTOR } }),
                 prisma.invest.findMany({
-                    select: {
-                        amount: true,
-                        status: true
-                    }
+                    select: { amount: true, status: true }
                 }),
-
-                // Semua withdrawal untuk statistik
                 prisma.withdrawal.findMany({
-                    select: {
-                        amount: true,
-                        status: true
-                    }
+                    select: { amount: true, status: true }
                 }),
-
-                // Investasi terbaru untuk transaksi
                 prisma.invest.findMany({
                     include: {
                         user: {
-                            select: {
-                                id_user: true,
-                                name: true,
-                                email: true
-                            }
+                            select: { id_user: true, name: true, email: true }
                         }
                     },
                     orderBy: { date: 'desc' },
                     take: 10
                 }),
-
-                // Withdrawal terbaru untuk transaksi
                 prisma.withdrawal.findMany({
                     include: {
                         user: {
-                            select: {
-                                id_user: true,
-                                name: true,
-                                email: true
-                            }
+                            select: { id_user: true, name: true, email: true }
                         }
                     },
                     orderBy: { date: 'desc' },
@@ -488,47 +441,25 @@ class AdminController {
                 })
             ]);
 
-            // Hitung Total Investment Funds (investasi yang sukses)
-            const totalInvestmentFunds = allInvestments
-                .filter(investment => investment.status === 'success')
-                .reduce((sum, investment) => sum + parseFloat(investment.amount), 0);
+            // Calculate statistics
+            const { totalInvestmentFunds, totalDividend } = this.calculateDashboardStatistics(
+                allInvestments,
+                allWithdrawals
+            );
 
-            // Hitung Total Dividen (withdrawal yang sukses)
-            const totalDividend = allWithdrawals
-                .filter(withdrawal => withdrawal.status === 'success')
-                .reduce((sum, withdrawal) => sum + parseFloat(withdrawal.amount), 0);
+            // Format recent transactions
+            const formattedInvests = recentInvests.map(invest => ({
+                ...TransactionFormatterService.formatInvestment(invest),
+                id_user: invest.user.id_user
+            }));
 
-            // Gabungkan transaksi terbaru
-            const allRecentTransactions = [
-                // Format investasi
-                ...recentInvests.map(invest => ({
-                    id: invest.id_invest,
-                    date: invest.date,
-                    type: 'Investment',
-                    amount: parseFloat(invest.amount),
-                    status: invest.status === 'success' ? 'Successful' :
-                        invest.status === 'pending' ? 'Pending' : 'Rejected',
-                    investor: invest.user.name,
-                    investor_email: invest.user.email,
-                    id_user: invest.user.id_user
-                })),
+            const formattedWithdrawals = recentWithdrawals.map(withdrawal => ({
+                ...TransactionFormatterService.formatWithdrawal(withdrawal),
+                id_user: withdrawal.user.id_user
+            }));
 
-                // Format withdrawal
-                ...recentWithdrawals.map(withdrawal => ({
-                    id: withdrawal.id,
-                    date: withdrawal.date,
-                    type: 'Withdrawal',
-                    amount: parseFloat(withdrawal.amount),
-                    status: withdrawal.status === 'success' ? 'Successful' :
-                        withdrawal.status === 'pending' ? 'Pending' : 'Rejected',
-                    investor: withdrawal.user.name,
-                    investor_email: withdrawal.user.email,
-                    id_user: withdrawal.user.id_user
-                }))
-            ];
-
-            // Urutkan berdasarkan tanggal terbaru dan ambil 10 transaksi teratas
-            const recentTransactions = allRecentTransactions
+            // Merge, sort, and limit to 10 most recent
+            const recentTransactions = [...formattedInvests, ...formattedWithdrawals]
                 .sort((a, b) => new Date(b.date) - new Date(a.date))
                 .slice(0, 10);
 
@@ -539,17 +470,10 @@ class AdminController {
                 transactions: recentTransactions
             };
 
-            res.status(200).json({
-                success: true,
-                data: dashboardStats
-            });
+            return ResponseFormatter.success(res, dashboardStats);
 
         } catch (error) {
-            console.error('Get dashboard stats error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Terjadi kesalahan server'
-            });
+            return ErrorHandler.handleError(res, error);
         }
     }
 }
